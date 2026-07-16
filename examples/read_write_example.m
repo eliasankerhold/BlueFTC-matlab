@@ -1,7 +1,7 @@
 %READ_EXAMPLE Minimal working example of read commands.
 %   MATLAB equivalent of the Python `examples/read_example.py` file.
 
-addpath(genpath('C:\Users\phys-pico-lab\Documents\MATLAB\QubitThermometry\Program\lib\BlueFTC-matlab'))
+addpath(genpath('C:\\Path\\to\\your\\directory\\BlueFTC-matlab'))
 
 [API_KEY, IP_ADDRESS, PORT_NUMBER, MXC_ID, HEATER_ID, PID_CALIB_FILE] = credentials_secure();
 
