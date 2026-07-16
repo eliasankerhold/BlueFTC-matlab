@@ -1,7 +1,9 @@
 %READ_EXAMPLE Minimal working example of read commands.
 %   MATLAB equivalent of the Python `examples/read_example.py` file.
 
-[API_KEY, IP_ADDRESS, PORT_NUMBER, MXC_ID, HEATER_ID, PID_CALIB_FILE] = credentials();
+addpath(genpath('C:\Users\phys-pico-lab\Documents\MATLAB\QubitThermometry\Program\lib\BlueFTC-matlab'))
+
+[API_KEY, IP_ADDRESS, PORT_NUMBER, MXC_ID, HEATER_ID, PID_CALIB_FILE] = credentials_secure();
 
 % NOTE: Unlike Python's `requests` package, MATLAB's HTTP interface
 % (matlab.net.http) does not print console warnings about disabled
@@ -10,9 +12,9 @@
 
 controller = blueftc.BlueFTController(ip=IP_ADDRESS, port=PORT_NUMBER, key=API_KEY, ...
     mixing_chamber_channel_id=MXC_ID, mixing_chamber_heater_id=HEATER_ID, ...
-    pid_calib_path=PID_CALIB_FILE);
+    pid_calib_path=PID_CALIB_FILE, emulate=false, debug=false);
 
-active_channels = [1, 2, 5, 6, 8];
+active_channels = [1, 2, 5, 6];
 
 for ch = active_channels
     fprintf('Channel %d temp: %g Kelvin\n', ch, controller.get_channel_temperature(ch));

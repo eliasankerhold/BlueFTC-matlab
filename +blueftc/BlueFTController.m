@@ -255,13 +255,13 @@ classdef BlueFTController < handle
             %   Must be formatted with a header row and four columns:
             %   [setpoint, p, i, d].
             if ~isempty(obj.pid_config_path)
-                if ~isfile(obj.pid_config_path)
-                    warning('blueftc:PIDConfigFileNotFound', ...
-                        ['Encountered error while loading pid config file: file not found: %s\n' ...
-                         'Continuing without automatic PID setpoint parameter adjustment.'], ...
-                        obj.pid_config_path);
-                    return
-                end
+                % if ~isfile(obj.pid_config_path)
+                %     warning('blueftc:PIDConfigFileNotFound', ...
+                %         ['Encountered error while loading pid config file: file not found: %s\n' ...
+                %          'Continuing without automatic PID setpoint parameter adjustment.'], ...
+                %         obj.pid_config_path);
+                %     return
+                % end
                 try
                     pid_config = readmatrix(obj.pid_config_path, 'NumHeaderLines', 1);
                     obj.pid_calib_setpoints = pid_config(:, 1);
@@ -272,6 +272,7 @@ classdef BlueFTController < handle
                     obj.valid_pid_config = true;
 
                     obj.log_message('INFO', sprintf('PID calibration loaded from %s', obj.pid_config_path));
+                    obj.log_message('DEBUG', obj.pid_calib_setpoints);
                 catch ex
                     warning('blueftc:PIDConfigLoadError', ...
                         ['Encountered error while loading pid config file: %s\n' ...
@@ -380,12 +381,13 @@ classdef BlueFTController < handle
                     uri = matlab.net.URI(requestPath);
                     % 'VerifyServerName', false mirrors requests' verify=False,
                     % since the server has a self-signed certificate.
-                    options = matlab.net.http.HTTPOptions('ConnectTimeout', 10, 'VerifyServerName', false);
+                    options = matlab.net.http.HTTPOptions('ConnectTimeout', 10, 'VerifyServerName', false, 'CertificateFilename', '');
                     resp = send(httpRequest, uri, options);
                     if double(resp.StatusCode) >= 400
                         error('blueftc:HTTPError', 'HTTP request failed with status %d', double(resp.StatusCode));
                     end
-                    response = jsondecode(char(resp.Body.Data));
+                    obj.log_message('DEBUG', jsonencode(resp.Body.Data, 'PrettyPrint', true));
+                    response = resp.Body.Data;
                 catch err
                     % We return data that indicates NaN and has an ERROR
                     % status (also otherwise not valid), mirroring the
@@ -419,21 +421,22 @@ classdef BlueFTController < handle
             keyName = sprintf('%s.%s', device, target);
             bodyMap = containers.Map();
             bodyMap('data') = containers.Map({keyName}, {struct('content', struct('value', value))});
-            requestBody = jsonencode(bodyMap);
+            requestBody = matlab.net.http.MessageBody();
+            requestBody.Payload = jsonencode(bodyMap);
 
             requestPath = sprintf('https://%s:%d/values/?prettyprint=1&key=%s', obj.ip, obj.port, obj.key);
 
             if ~obj.emulate
-                obj.log_message('DEBUG', sprintf('POST: %s - Body: %s', requestPath, requestBody));
+                obj.log_message('DEBUG', sprintf('POST: %s - Body: %s', requestPath, jsonencode(bodyMap)));
                 header = matlab.net.http.HeaderField('Content-Type', 'application/json');
                 httpRequest = matlab.net.http.RequestMessage('POST', header, requestBody);
                 uri = matlab.net.URI(requestPath);
-                options = matlab.net.http.HTTPOptions('ConnectTimeout', 10, 'VerifyServerName', false);
+                options = matlab.net.http.HTTPOptions('ConnectTimeout', 10, 'VerifyServerName', false, 'CertificateFilename', '');
                 resp = send(httpRequest, uri, options);
                 if double(resp.StatusCode) >= 400
                     error('blueftc:HTTPError', 'HTTP request failed with status %d', double(resp.StatusCode));
                 end
-                response = jsondecode(char(resp.Body.Data));
+                response = resp.Body.Data;
             else
                 obj.log_message('DEBUG', sprintf('EMULATE, POST: %s - Body: %s', requestPath, requestBody));
                 response = struct();
@@ -452,16 +455,17 @@ classdef BlueFTController < handle
 
             bodyMap = containers.Map();
             bodyMap('data') = containers.Map({sprintf('%s.write', device)}, {struct('content', struct('call', 1))});
-            requestBody = jsonencode(bodyMap);
+            requestBody = matlab.net.http.MessageBody();
+            requestBody.Payload = jsonencode(bodyMap);
 
             requestPath = sprintf('https://%s:%d/values/?prettyprint=1&key=%s', obj.ip, obj.port, obj.key);
 
             if ~obj.emulate
-                obj.log_message('DEBUG', sprintf('POST: %s - Body: %s', requestPath, requestBody));
+                obj.log_message('DEBUG', sprintf('POST: %s - Body: %s', requestPath, jsonencode(bodyMap)));
                 header = matlab.net.http.HeaderField('Content-Type', 'application/json');
                 httpRequest = matlab.net.http.RequestMessage('POST', header, requestBody);
                 uri = matlab.net.URI(requestPath);
-                options = matlab.net.http.HTTPOptions('ConnectTimeout', 10, 'VerifyServerName', false);
+                options = matlab.net.http.HTTPOptions('ConnectTimeout', 10, 'VerifyServerName', false, 'CertificateFilename', '');
                 resp = send(httpRequest, uri, options);
                 if double(resp.StatusCode) >= 400
                     error('blueftc:HTTPError', 'HTTP request failed with status %d', double(resp.StatusCode));
@@ -496,12 +500,12 @@ classdef BlueFTController < handle
 
         function temperature = get_channel_temperature(obj, channel)
             %GET_CHANNEL_TEMPERATURE Get the temperature of the given channel, in Kelvin.
-            temperature = double(obj.get_channel_data(channel, 'temperature'));
+            temperature = str2double(obj.get_channel_data(channel, 'temperature'));
         end
 
         function resistance = get_channel_resistance(obj, channel)
             %GET_CHANNEL_RESISTANCE Get the resistance of the given channel, in Ohm.
-            resistance = double(obj.get_channel_data(channel, 'resistance'));
+            resistance = str2double(obj.get_channel_data(channel, 'resistance'));
         end
 
         function temperature = get_mxc_temperature(obj)
@@ -527,7 +531,7 @@ classdef BlueFTController < handle
             if obj.has_mxc
                 data = obj.get_value_request(obj.mixing_chamber_heater, target);
                 try
-                    value = obj.get_value_from_data_response(data, obj.mixing_chamber_heater, target);
+                    value = str2double(obj.get_value_from_data_response(data, obj.mixing_chamber_heater, target));
                 catch
                     throw(blueftc.APIError(data));
                 end
@@ -661,10 +665,10 @@ classdef BlueFTController < handle
 
             if obj.has_mxc
                 if use_pid_calib && obj.valid_pid_config
-                    [~, closest] = min(abs(obj.pid_calib_setpoints - temperature));
+                    [~, closest] = min(abs(obj.pid_calib_setpoints - temperature * 1e-3));
                     obj.log_message('INFO', sprintf( ...
                         'Using PID calibration for setpoint %g mK, closest available calibration to %g mK.', ...
-                        obj.pid_calib_setpoints(closest), temperature));
+                        obj.pid_calib_setpoints(closest) * 1e3, temperature));
                     pidRow = num2cell(obj.pid_calib_pid(closest, :));
                     obj.set_mxc_heater_pid_config(pidRow{:});
                 else
@@ -676,7 +680,7 @@ classdef BlueFTController < handle
                     error('blueftc:SetpointTooHigh', ...
                         'Mixing chamber setpoint cannot be over 1K. You are trying to set %g mK.', temperature);
                 end
-                success = obj.set_mxc_heater_value('setpoint', temperature);
+                success = obj.set_mxc_heater_value('setpoint', temperature * 1e-3);
             else
                 error('blueftc:MxcNotConfigured', 'Mixing chamber channel ID not configured.');
             end
