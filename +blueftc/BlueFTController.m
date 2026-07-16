@@ -59,6 +59,7 @@ classdef BlueFTController < handle
         mixing_chamber_heater       char    % The heater mapping for the mixing chamber.
         debug                       logical % A flag used to set the log level.
         pid_config_path             char    % Path to file storing PID calibration table.
+        controller_type             char    % Type of physical temperature controller. Can be 'bluefors' or 'lakeshore'.
     end
 
     properties (Access = private)
@@ -70,6 +71,9 @@ classdef BlueFTController < handle
         emulate             (1,1) logical = false   % Toggles emulation mode.
         log_file            char = 'bluefors.log'        % Log file path.
         log_state_file      char = 'bluefors.log.state'  % Bookkeeping file for weekly log rotation.
+        mxc_heater_device   char                    % endpoint of the mixing chamber heater, depending on the temperature controller
+        sensor_data_device  char                    % endpoint of a temperature sensor, depending on the temperature controller
+        pid_target          char                    % endpoint of pid-related settings, depending on the temperature controller
     end
 
     methods
@@ -117,6 +121,7 @@ classdef BlueFTController < handle
                 args.pid_calib_path string = missing
                 args.activate_maxigauge_reading (1,1) logical = false
                 args.emulate (1,1) logical = false
+                args.controller_type string = "bluefors"
             end
 
             obj.ip = char(args.ip);
@@ -135,7 +140,6 @@ classdef BlueFTController < handle
             else
                 heaterStr = num2str(args.mixing_chamber_heater_id);
             end
-            obj.mixing_chamber_heater = ['driver.bftc.data.heaters.heater_' heaterStr];
 
             obj.debug = args.debug;
 
@@ -155,6 +159,19 @@ classdef BlueFTController < handle
             obj.emulate = args.emulate;
 
             obj.load_pid_config();
+            
+            if strcmp(args.controller_type, 'bluefors')
+                obj.sensor_data_device = 'mapper.temperature_control.sensors.t';
+                obj.mxc_heater_device = ['driver.bftc.data.heaters.heater_' heaterStr];
+                obj.pid_target = 'pid_';
+            elseif strcmp(args.controller_type, 'lakeshore')
+                obj.sensor_data_device = 'mapper.temperature_control.sensors.t';
+                obj.mxc_heater_device = 'driver.lakeshore.settings.outputs.sample';
+                obj.pid_target = '';
+            else
+                error("Choose controller type from 'bluefors' or 'lakeshore'");
+            end
+
         end
     end
 
@@ -488,7 +505,7 @@ classdef BlueFTController < handle
             %       The channel from which to retrieve the data.
             %   target_value : string
             %       The target value to retrieve from the channel.
-            device_id = sprintf('mapper.heater_mappings_bftc.device.c%d', channel);
+            device_id = sprintf('%s%d', obj.sensor_data_device, channel);
             obj.log_message('DEBUG', sprintf('Requesting value: %s  from channel %d', target_value, channel));
             data = obj.get_value_request(device_id, target_value);
             try
@@ -529,9 +546,9 @@ classdef BlueFTController < handle
         function value = get_mxc_heater_value(obj, target)
             %GET_MXC_HEATER_VALUE Get the target value of the mixing chamber heater.
             if obj.has_mxc
-                data = obj.get_value_request(obj.mixing_chamber_heater, target);
+                data = obj.get_value_request(obj.mxc_heater_device, target);
                 try
-                    value = str2double(obj.get_value_from_data_response(data, obj.mixing_chamber_heater, target));
+                    value = str2double(obj.get_value_from_data_response(data, obj.mxc_heater_device, target));
                 catch
                     throw(blueftc.APIError(data));
                 end
@@ -542,10 +559,10 @@ classdef BlueFTController < handle
 
         function synced = check_heater_value_synced(obj, target)
             %CHECK_HEATER_VALUE_SYNCED Check if the value of the mixing chamber heater is synced.
-            data = obj.get_value_request(obj.mixing_chamber_heater, target);
+            data = obj.get_value_request(obj.mxc_heater_device, target);
             try
                 synced = logical(obj.handle_status_response( ...
-                    obj.get_synchronization_status(data, obj.mixing_chamber_heater, target), target, true));
+                    obj.get_synchronization_status(data, obj.mxc_heater_device, target), target, true));
             catch
                 throw(blueftc.APIError(data));
             end
@@ -556,10 +573,10 @@ classdef BlueFTController < handle
             if obj.has_mxc
                 obj.log_message('INFO', sprintf('Mixing Chamber Heater: Setting %s to %s', target, string(value)));
                 % Set the value.
-                obj.set_value_request(obj.mixing_chamber_heater, target, value);
+                obj.set_value_request(obj.mxc_heater_device, target, value);
                 % Apply the value (otherwise it doesn't get synced to the temperature controller).
                 obj.log_message('DEBUG', 'Mixing Chamber Heater: Applying settings');
-                obj.apply_values_request(obj.mixing_chamber_heater);
+                obj.apply_values_request(obj.mxc_heater_device);
                 synced = obj.check_heater_value_synced(target);
                 obj.log_message('INFO', 'Mixing Chamber Heater: Settings applied and synced');
             else
@@ -690,7 +707,7 @@ classdef BlueFTController < handle
             %GET_MXC_HEATER_MODE Get the pid mode of the mixing chamber heater.
             %   Returns true if the pid mode is active, false otherwise.
             if obj.has_mxc
-                mode = strcmp(string(obj.get_mxc_heater_value('pid_mode')), '1');
+                mode = strcmp(string(obj.get_mxc_heater_value(sprintf('%smode', obj.pid_target))), '1');
             else
                 error('blueftc:MxcNotConfigured', 'Mixing chamber channel ID not configured.');
             end
@@ -704,7 +721,7 @@ classdef BlueFTController < handle
                 else
                     newValue = '0';
                 end
-                success = obj.set_mxc_heater_value('pid_mode', newValue);
+                success = obj.set_mxc_heater_value(sprintf('%smode', obj.pid_target), newValue);
             else
                 error('blueftc:MxcNotConfigured', 'Mixing chamber channel ID not configured.');
             end
@@ -716,7 +733,7 @@ classdef BlueFTController < handle
             letters = {'p', 'i', 'd'};
             pid = zeros(1, 3);
             for idx = 1:3
-                pid(idx) = double(obj.get_mxc_heater_value(sprintf('pid_%s', letters{idx})));
+                pid(idx) = double(obj.get_mxc_heater_value(sprintf('%s%s', obj.pid_target, letters{idx})));
             end
         end
 
@@ -741,7 +758,7 @@ classdef BlueFTController < handle
             for idx = 1:3
                 v = values{idx};
                 if ~isempty(v)
-                    if ~obj.set_mxc_heater_value(sprintf('pid_%s', letters{idx}), v)
+                    if ~obj.set_mxc_heater_value(sprintf('%s%s', obj.pid_target, letters{idx}), v)
                         success = false;
                         return
                     end

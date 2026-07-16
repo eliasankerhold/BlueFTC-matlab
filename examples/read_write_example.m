@@ -12,7 +12,7 @@ addpath(genpath('C:\Users\phys-pico-lab\Documents\MATLAB\QubitThermometry\Progra
 
 controller = blueftc.BlueFTController(ip=IP_ADDRESS, port=PORT_NUMBER, key=API_KEY, ...
     mixing_chamber_channel_id=MXC_ID, mixing_chamber_heater_id=HEATER_ID, ...
-    pid_calib_path=PID_CALIB_FILE, emulate=false, debug=false);
+    pid_calib_path=PID_CALIB_FILE, emulate=false, debug=false, controller_type='lakeshore');
 
 active_channels = [1, 2, 5, 6];
 
@@ -26,3 +26,6 @@ fprintf('MXC heater power: %g uW\n', controller.get_mxc_heater_power());
 fprintf('MXC heater PID: %d\n', controller.get_mxc_heater_mode());
 fprintf('MXC heater setpoint: %g K\n', controller.get_mxc_heater_setpoint());
 fprintf('MXC heater PID config: %s\n', mat2str(controller.get_mxc_heater_pid_config()));
+
+controller.set_mxc_heater_setpoint(0);
+controller.set_mxc_heater_status(1);
